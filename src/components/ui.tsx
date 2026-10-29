@@ -188,3 +188,29 @@ export function Icon({ name, size = 18, className = "" }: { name: IconName; size
     </svg>
   );
 }
+
+// ------------------------------------------------------- loading states
+
+/** แถบเทากระพริบ แทนเนื้อหาที่กำลังโหลด */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className.includes("rounded") ? "" : "rounded-md"} ${className}`} aria-hidden />;
+}
+
+/** แถบ "รอ ..." สำหรับคนที่ไม่ใช่เจ้าของมื้อ */
+export function WaitingBar({ who, what }: { who: string; what: string }) {
+  return (
+    <div
+      role="status"
+      className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-dashed border-line px-4 text-sm text-muted"
+    >
+      <span>
+        รอ <span className="font-medium text-ink">{who}</span> {what}
+      </span>
+      <span className="inline-flex gap-0.5" aria-hidden>
+        <span className="dot h-1 w-1 rounded-full bg-current" />
+        <span className="dot h-1 w-1 rounded-full bg-current" />
+        <span className="dot h-1 w-1 rounded-full bg-current" />
+      </span>
+    </div>
+  );
+}

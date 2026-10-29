@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { CoinRules } from "@/components/CoinRules";
 import { LoginButton } from "@/components/LoginButton";
-import { Avatar, Button, Coins, ErrorText, FullPageSpinner, Icon, Input, SectionLabel } from "@/components/ui";
+import { DashboardSkeleton } from "@/components/Skeletons";
+import { Avatar, Button, Coins, ErrorText, Icon, Input, SectionLabel } from "@/components/ui";
 import { api } from "@/lib/client";
 import type { GroupSummary, Me } from "@/lib/types";
 
@@ -17,8 +18,8 @@ export default function Home() {
   }, []);
   useEffect(load, [load]);
 
-  if (!data) return <FullPageSpinner />;
-  return data.user ? <Dashboard user={data.user} groups={data.groups} /> : <Landing onLogin={load} />;
+  if (!data) return <DashboardSkeleton />;
+  return data.user ? <div className="animate-phase"><Dashboard user={data.user} groups={data.groups} /></div> : <div className="animate-phase"><Landing onLogin={load} /></div>;
 }
 
 // ---------------------------------------------------------------- landing

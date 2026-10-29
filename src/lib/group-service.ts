@@ -362,6 +362,10 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
       if (!s.includes(open.status)) throw new ApiError(409, "ทำแบบนี้ในขั้นตอนนี้ไม่ได้ (ลองรีเฟรช)");
       return open;
     };
+    // เฉพาะ "เจ้าของมื้อ" (คนที่กดเริ่มมื้อ) ถึงจะพามื้อไปขั้นถัดไป / ยกเลิกได้
+    const requireOwner = (meal: MealRow) => {
+      if (meal.created_by !== user.id) throw new ApiError(403, "เฉพาะคนที่เริ่มมื้อนี้เท่านั้น");
+    };
     const restaurantsOf = async (mealId: string) =>
       (check(
         await db().from("restaurants").select("id, name_key, added_by").eq("meal_id", mealId),
@@ -429,6 +433,7 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
       // -------- ปิดรับร้าน → เริ่มบิด
       case "start_bidding": {
         const meal = requireMeal("adding");
+        requireOwner(meal);
         if ((await restaurantsOf(meal.id)).length < 2) {
           throw new ApiError(409, "ต้องมีอย่างน้อย 2 ร้านถึงจะเริ่มบิดได้");
         }
@@ -465,6 +470,7 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
       // -------- เปิดผล: หาผู้ชนะ + หักเหรียญคนที่บิดร้านที่ชนะ
       case "reveal": {
         const meal = requireMeal("bidding");
+        requireOwner(meal);
         const [list, bids] = await Promise.all([
           restaurantsOf(meal.id),
           db().from("bids").select("user_id, restaurant_id, amount").eq("meal_id", meal.id).then(check),
@@ -511,6 +517,7 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
 
       case "cancel_meal": {
         const meal = requireMeal("adding", "bidding");
+        requireOwner(meal);
         await claim(groupId, v);
         check(
           await db()

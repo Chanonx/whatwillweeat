@@ -7,7 +7,8 @@ import { AddRestaurants } from "@/components/AddRestaurants";
 import { Auction } from "@/components/Auction";
 import { CoinRules } from "@/components/CoinRules";
 import { Result } from "@/components/Result";
-import { Avatar, Button, Coins, FullPageSpinner, Icon, SectionLabel, Toast } from "@/components/ui";
+import { GroupSkeleton } from "@/components/Skeletons";
+import { Avatar, Button, Coins, Icon, SectionLabel, Toast } from "@/components/ui";
 import { useGroup } from "@/hooks/useGroup";
 import { api } from "@/lib/client";
 import { COINS } from "@/lib/logic";
@@ -15,7 +16,7 @@ import type { Action } from "@/lib/types";
 
 export default function GroupPageWrapper() {
   return (
-    <Suspense fallback={<FullPageSpinner />}>
+    <Suspense fallback={<GroupSkeleton />}>
       <GroupPage />
     </Suspense>
   );
@@ -63,11 +64,14 @@ function GroupPage() {
       </main>
     );
   }
-  if (!state) return <FullPageSpinner />;
+  if (!state) return <GroupSkeleton />;
 
   const { group, members, meal, meId, history } = state;
   const me = members.find((m) => m.userId === meId);
   const step = !meal ? 0 : meal.status === "adding" ? 1 : meal.status === "bidding" ? 2 : 3;
+  // เจ้าของมื้อ = คนที่กดเริ่มมื้อนี้ → คนเดียวที่ไปขั้นถัดไป / ยกเลิกได้
+  const isOwner = meal?.createdBy === meId;
+  const ownerName = members.find((m) => m.userId === meal?.createdBy)?.name ?? "เจ้าของมื้อ";
 
   return (
     <main className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-4">
@@ -115,18 +119,22 @@ function GroupPage() {
       )}
 
       {step > 0 && <Stepper step={step} />}
+      {meal && meal.status !== "done" && (
+        <p className="-mt-5 mb-8 text-xs text-muted">
+          {isOwner ? "คุณเป็นคนเริ่มมื้อนี้ — กดไปขั้นถัดไปได้เมื่อพร้อม" : `${ownerName} เป็นคนเริ่มมื้อนี้`}
+        </p>
+      )}
 
       {/* ---------- main stage */}
-      <section className="mb-12">
+      {/* key เปลี่ยนทุกครั้งที่เปลี่ยนเฟส → React สร้างใหม่ → เล่นอนิเมชัน phase-in */}
+      <section key={`${meal?.id ?? "none"}-${meal?.status ?? "none"}`} className="animate-phase mb-12">
         {!meal && (
           <div className="border-y border-line py-10 text-center">
             <h2 className="text-2xl font-semibold tracking-tight">หิวแล้วหรือยัง?</h2>
             <p className="mb-6 mt-2 text-sm text-muted">
               เริ่มมื้อใหม่ ทุกคนในกลุ่มได้รับ +{COINS.MEAL_BONUS} เหรียญ
             </p>
-            <Button onClick={() => safe({ type: "start_meal" })} className="w-full">
-              เริ่มมื้อใหม่
-            </Button>
+            <StartMealButton onStart={() => safe({ type: "start_meal" })} />
           </div>
         )}
 
@@ -135,7 +143,8 @@ function GroupPage() {
             restaurants={meal.restaurants}
             members={members}
             meId={meId}
-            isMealOwner={meal.createdBy === meId}
+            isOwner={isOwner}
+            ownerName={ownerName}
             onAdd={(name) => act({ type: "add_restaurant", name })}
             onRemove={(restaurantId) => safe({ type: "remove_restaurant", restaurantId })}
             onNext={() => safe({ type: "start_bidding" })}
@@ -150,6 +159,9 @@ function GroupPage() {
             bidders={meal.bidders}
             myBid={meal.myBid}
             myCoins={me?.coins ?? 0}
+            meId={meId}
+            isOwner={isOwner}
+            ownerName={ownerName}
             onBid={(restaurantId, amount) => act({ type: "place_bid", restaurantId, amount })}
             onReveal={() => safe({ type: "reveal" })}
           />
@@ -165,7 +177,7 @@ function GroupPage() {
           />
         )}
 
-        {(meal?.status === "adding" || meal?.status === "bidding") && (
+        {isOwner && (meal?.status === "adding" || meal?.status === "bidding") && (
           <div className="mt-4 text-center">
             <CancelMeal onCancel={() => safe({ type: "cancel_meal" })} />
           </div>
@@ -212,7 +224,12 @@ function Stepper({ step }: { step: number }) {
         const n = i + 1;
         return (
           <li key={l} className="flex flex-col gap-1.5 text-xs">
-            <span className={`h-0.5 w-full rounded-full ${n <= step ? "bg-ink" : "bg-line"}`} />
+            <span className="h-0.5 w-full overflow-hidden rounded-full bg-line">
+              <span
+                className="block h-full bg-ink transition-transform duration-500 ease-out"
+                style={{ transform: `scaleX(${n <= step ? 1 : 0})`, transformOrigin: "left" }}
+              />
+            </span>
             <span className={n === step ? "font-medium text-ink" : "text-muted"}>
               {n}. {l}
             </span>
@@ -300,5 +317,25 @@ function CancelMeal({ onCancel }: { onCancel: () => void }) {
         ไม่
       </button>
     </span>
+  );
+}
+
+function StartMealButton({ onStart }: { onStart: () => Promise<void> }) {
+  const [loading, setLoading] = useState(false);
+  return (
+    <Button
+      loading={loading}
+      onClick={async () => {
+        setLoading(true);
+        try {
+          await onStart();
+        } finally {
+          setLoading(false);
+        }
+      }}
+      className="w-full"
+    >
+      เริ่มมื้อใหม่
+    </Button>
   );
 }

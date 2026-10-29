@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { LoginButton } from "@/components/LoginButton";
-import { Button, Coins, ErrorText, FullPageSpinner } from "@/components/ui";
+import { JoinSkeleton } from "@/components/Skeletons";
+import { Button, Coins, ErrorText } from "@/components/ui";
 import { api } from "@/lib/client";
 import { COINS } from "@/lib/logic";
 import type { Me } from "@/lib/types";
@@ -45,10 +46,10 @@ export default function JoinPage() {
       </main>
     );
   }
-  if (!preview || user === undefined) return <FullPageSpinner />;
+  if (!preview || user === undefined) return <JoinSkeleton />;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5 py-10">
+    <main className="animate-phase mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5 py-10">
       <p className="mb-2 text-sm text-muted">คุณได้รับเชิญเข้ากลุ่ม</p>
       <h1 className="mb-1 text-3xl font-semibold tracking-tight">{preview.name}</h1>
       <p className="mb-8 text-sm text-muted">สมาชิก {preview.memberCount} คน</p>

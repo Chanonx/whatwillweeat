@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Button, Icon, Input, SectionLabel } from "./ui";
+import { Button, Icon, Input, SectionLabel, Spinner, WaitingBar } from "./ui";
 import { MAX_RESTAURANTS_PER_MEMBER, type Member, type Restaurant } from "@/lib/types";
 
 interface Props {
   restaurants: Restaurant[];
   members: Member[];
   meId: string;
-  isMealOwner: boolean;
+  isOwner: boolean;
+  ownerName: string;
   onAdd: (name: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onNext: () => Promise<void>;
@@ -16,23 +17,41 @@ interface Props {
 
 const SUGGESTIONS = ["ชาบู", "หมูกระทะ", "ส้มตำ", "ซูชิ", "ก๋วยเตี๋ยว", "พิซซ่า", "ข้าวมันไก่", "สเต๊ก", "ราเมง"];
 
-export function AddRestaurants({ restaurants, members, meId, isMealOwner, onAdd, onRemove, onNext }: Props) {
+export function AddRestaurants({ restaurants, members, meId, isOwner, ownerName, onAdd, onRemove, onNext }: Props) {
   const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
   const [advancing, setAdvancing] = useState(false);
-  const mine = restaurants.filter((r) => r.addedBy === meId).length;
+  // Optimistic UI: โชว์ร้านที่เพิ่ง "เพิ่ม/ลบ" ทันที ไม่ต้องรอ server ตอบ
+  const [pending, setPending] = useState<string[]>([]);
+  const [removing, setRemoving] = useState<string[]>([]);
+
+  const visible = restaurants.filter((r) => !removing.includes(r.id));
+  const known = new Set(visible.map((r) => r.name.toLowerCase()));
+  const pendingShown = pending.filter((p) => !known.has(p.toLowerCase()));
+  const mine = visible.filter((r) => r.addedBy === meId).length + pendingShown.length;
   const full = mine >= MAX_RESTAURANTS_PER_MEMBER;
+  const total = visible.length + pendingShown.length;
   const nick = (id: string) => members.find((m) => m.userId === id)?.name ?? "?";
-  const taken = new Set(restaurants.map((r) => r.name.toLowerCase()));
 
   async function add(value: string) {
-    if (!value.trim() || busy) return;
-    setBusy(true);
+    const v = value.trim();
+    if (!v || full || known.has(v.toLowerCase()) || pending.includes(v)) return;
+    setPending((p) => [...p, v]);
+    setName("");
     try {
-      await onAdd(value);
-      setName("");
+      await onAdd(v);
+    } catch {
+      setName((cur) => cur || v); // เพิ่มไม่สำเร็จ → คืนข้อความให้แก้ต่อ
     } finally {
-      setBusy(false);
+      setPending((p) => p.filter((x) => x !== v));
+    }
+  }
+
+  async function remove(id: string) {
+    setRemoving((r) => [...r, id]);
+    try {
+      await onRemove(id);
+    } finally {
+      setRemoving((r) => r.filter((x) => x !== id));
     }
   }
 
@@ -66,20 +85,19 @@ export function AddRestaurants({ restaurants, members, meId, isMealOwner, onAdd,
             onChange={(e) => setName(e.target.value)}
             enterKeyHint="send"
           />
-          <Button type="submit" loading={busy} disabled={full || !name.trim()} className="shrink-0">
+          <Button type="submit" disabled={full || !name.trim()} className="shrink-0">
             เพิ่ม
           </Button>
         </form>
         {!full && (
           <div className="mt-3 flex flex-wrap gap-2">
-            {SUGGESTIONS.filter((s) => !taken.has(s.toLowerCase()))
+            {SUGGESTIONS.filter((s) => !known.has(s.toLowerCase()) && !pending.includes(s))
               .slice(0, 6)
               .map((s) => (
                 <button
                   key={s}
                   onClick={() => add(s)}
-                  disabled={busy}
-                  className="rounded-full border border-line bg-white px-3 py-1.5 text-sm text-muted transition hover:border-ink hover:text-ink disabled:opacity-40"
+                  className="rounded-full border border-line bg-white px-3 py-1.5 text-sm text-muted transition hover:border-ink hover:text-ink active:scale-95"
                 >
                   {s}
                 </button>
@@ -89,20 +107,20 @@ export function AddRestaurants({ restaurants, members, meId, isMealOwner, onAdd,
       </section>
 
       <section>
-        <SectionLabel right={`${restaurants.length} ร้าน`}>ร้านที่เสนอ</SectionLabel>
-        {restaurants.length === 0 ? (
+        <SectionLabel right={`${total} ร้าน`}>ร้านที่เสนอ</SectionLabel>
+        {total === 0 ? (
           <p className="border-y border-line py-8 text-center text-sm text-muted">ยังไม่มีร้าน</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
-            {restaurants.map((r) => (
+            {visible.map((r) => (
               <li key={r.id} className="animate-rise flex items-center gap-3 py-3">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{r.name}</span>
                   <span className="text-xs text-muted">{r.addedBy === meId ? "คุณ" : nick(r.addedBy)}</span>
                 </span>
-                {(r.addedBy === meId || isMealOwner) && (
+                {(r.addedBy === meId || isOwner) && (
                   <button
-                    onClick={() => onRemove(r.id)}
+                    onClick={() => remove(r.id)}
                     className="flex h-9 w-9 items-center justify-center rounded-full text-muted transition hover:bg-soft hover:text-danger"
                     aria-label={`ลบ ${r.name}`}
                   >
@@ -111,13 +129,28 @@ export function AddRestaurants({ restaurants, members, meId, isMealOwner, onAdd,
                 )}
               </li>
             ))}
+            {pendingShown.map((p) => (
+              <li key={`pending-${p}`} className="animate-rise flex items-center gap-3 py-3 opacity-50">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{p}</span>
+                  <span className="text-xs text-muted">กำลังเพิ่ม</span>
+                </span>
+                <span className="flex h-9 w-9 items-center justify-center text-muted">
+                  <Spinner />
+                </span>
+              </li>
+            ))}
           </ul>
         )}
       </section>
 
-      <Button onClick={next} loading={advancing} disabled={restaurants.length < 2} className="w-full">
-        {restaurants.length < 2 ? "ต้องมีอย่างน้อย 2 ร้าน" : "ไปขั้นบิดเหรียญ"}
-      </Button>
+      {isOwner ? (
+        <Button onClick={next} loading={advancing} disabled={visible.length < 2 || pendingShown.length > 0} className="w-full">
+          {visible.length < 2 ? "ต้องมีอย่างน้อย 2 ร้าน" : "ไปขั้นบิดเหรียญ"}
+        </Button>
+      ) : (
+        <WaitingBar who={ownerName} what="ไปขั้นบิดเหรียญ" />
+      )}
     </div>
   );
 }
