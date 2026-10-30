@@ -43,7 +43,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: ./scripts/test-stack.sh
+      - run: bash scripts/test-stack.sh
       - run: set -a && . ./.env.test && set +a && npm run test:api
       - if: failure()
-        run: tail -100 .ci/*.log
+        run: tail -n 100 .ci/*.log || true
