@@ -6,6 +6,9 @@ import { ApiError } from "./errors";
 import {
   COINS,
   generateInviteCode,
+  isStale,
+  lastActivityAt,
+  MEAL_STALE_MINUTES,
   mealBonus,
   normalizeName,
   resolveAuction,
@@ -313,12 +316,18 @@ async function mealView(meal: MealRow, meId: string): Promise<Meal> {
   const [restaurants, bids] = await Promise.all([
     db()
       .from("restaurants")
-      .select("id, name, added_by")
+      .select("id, name, added_by, created_at")
       .eq("meal_id", meal.id)
       .order("created_at", { ascending: true })
       .then(check),
-    db().from("bids").select("user_id, restaurant_id, amount").eq("meal_id", meal.id).then(check),
+    db().from("bids").select("user_id, restaurant_id, amount, created_at").eq("meal_id", meal.id).then(check),
   ]);
+  const last = lastActivityAt([
+    meal.created_at,
+    ...(restaurants ?? []).map((r) => r.created_at as string),
+    ...(bids ?? []).map((b) => b.created_at as string),
+  ]);
+  const open = meal.status === "adding" || meal.status === "bidding";
   const bidViews: BidView[] = (bids ?? []).map((b) => ({
     userId: b.user_id,
     restaurantId: b.restaurant_id,
@@ -333,6 +342,9 @@ async function mealView(meal: MealRow, meId: string): Promise<Meal> {
     restaurants: (restaurants ?? []).map((r) => ({ id: r.id, name: r.name, addedBy: r.added_by })),
     bidders: bidViews.map((b) => b.userId),
     myBid: bidViews.find((b) => b.userId === meId) ?? null,
+    lastActivityAt: new Date(last).toISOString(),
+    // เจ้าของมื้อหายไป → มื้อนิ่งเกิน 10 นาที คนอื่นยกเลิกได้ (server เป็นคนตัดสิน ไม่ใช้นาฬิกาเครื่องผู้ใช้)
+    staleCancelable: open && isStale(last, Date.now()),
     // ยอดบิดของคนอื่นถูกส่งมาเฉพาะตอนจบแล้ว → แอบดูใน DevTools ก็ไม่เจอ
     result:
       meal.status === "done" && meal.winner_restaurant_id
@@ -455,14 +467,23 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
           throw new ApiError(404, "ไม่พบร้านนี้");
         }
         await claim(groupId, v);
-        check(
-          await db()
-            .from("bids")
-            .upsert(
-              { meal_id: meal.id, user_id: user.id, restaurant_id: action.restaurantId, amount },
-              { onConflict: "meal_id,user_id" },
-            ),
-        );
+        const saved = await db()
+          .from("bids")
+          .upsert(
+            {
+              meal_id: meal.id,
+              user_id: user.id,
+              restaurant_id: action.restaurantId,
+              amount,
+              created_at: new Date().toISOString(), // เวลาบิดล่าสุด ใช้นับความเคลื่อนไหวของมื้อ
+            },
+            { onConflict: "meal_id,user_id" },
+          );
+        // trigger ใน DB ปฏิเสธ = มื้อถูกเปิดผลไปแล้วระหว่างที่เรากำลังบิด
+        if (saved.error?.message?.includes("meal_not_bidding")) {
+          throw new ApiError(409, "เปิดผลไปแล้ว บิดไม่ทัน");
+        }
+        check(saved);
         await bump(groupId, v);
         return;
       }
@@ -471,6 +492,25 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
       case "reveal": {
         const meal = requireMeal("bidding");
         requireOwner(meal);
+        await claim(groupId, v);
+
+        // 1) ปิดรับบิดก่อน แบบมีเงื่อนไข status = bidding
+        //    → กดเปิดผลซ้ำ: ครั้งที่สองได้ 0 แถว ไม่ทำต่อ (หักเหรียญครั้งเดียว)
+        //    → trigger ใน DB ปฏิเสธบิดที่มาหลังจากนี้ ส่วนบิดที่กำลังบันทึกอยู่ การปิดจะรอให้เสร็จก่อน
+        const closed = check(
+          await db()
+            .from("meals")
+            .update({ status: "done", closed_at: new Date().toISOString() })
+            .eq("id", meal.id)
+            .eq("status", "bidding")
+            .select("id"),
+        );
+        if (!closed?.length) {
+          await bump(groupId, v);
+          return;
+        }
+
+        // 2) อ่านบิดหลังปิดแล้ว = ชุดสุดท้ายที่ไม่มีใครเพิ่มได้อีก
         const [list, bids] = await Promise.all([
           restaurantsOf(meal.id),
           db().from("bids").select("user_id, restaurant_id, amount").eq("meal_id", meal.id).then(check),
@@ -481,22 +521,14 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
           secureRng,
         );
 
-        await claim(groupId, v);
-        // อัปเดตแบบมีเงื่อนไข status = bidding → ต่อให้กดซ้ำ ก็หักเหรียญได้ครั้งเดียว
-        const closed = check(
+        // 3) บันทึกผู้ชนะ + หักเหรียญคนที่บิดร้านที่ชนะ
+        check(
           await db()
             .from("meals")
-            .update({
-              status: "done",
-              winner_restaurant_id: result.winnerId,
-              was_tie: result.wasTie,
-              closed_at: new Date().toISOString(),
-            })
-            .eq("id", meal.id)
-            .eq("status", "bidding")
-            .select("id"),
+            .update({ winner_restaurant_id: result.winnerId, was_tie: result.wasTie })
+            .eq("id", meal.id),
         );
-        if (closed?.length && result.payments.length) {
+        if (result.payments.length) {
           check(
             await db()
               .from("coin_ledger")
@@ -517,7 +549,21 @@ export async function performAction(user: CurrentUser, groupId: string, action: 
 
       case "cancel_meal": {
         const meal = requireMeal("adding", "bidding");
-        requireOwner(meal);
+        // เจ้าของมื้อยกเลิกได้เสมอ / คนอื่นยกเลิกได้เมื่อมื้อนิ่งเกิน 10 นาที (กันมื้อค้าง)
+        if (meal.created_by !== user.id) {
+          const [rs, bs] = await Promise.all([
+            db().from("restaurants").select("created_at").eq("meal_id", meal.id).then(check),
+            db().from("bids").select("created_at").eq("meal_id", meal.id).then(check),
+          ]);
+          const last = lastActivityAt([
+            meal.created_at,
+            ...(rs ?? []).map((r) => r.created_at as string),
+            ...(bs ?? []).map((b) => b.created_at as string),
+          ]);
+          if (!isStale(last, Date.now())) {
+            throw new ApiError(403, `เฉพาะคนที่เริ่มมื้อ หรือรอให้มื้อไม่ขยับเกิน ${MEAL_STALE_MINUTES} นาที`);
+          }
+        }
         await claim(groupId, v);
         check(
           await db()

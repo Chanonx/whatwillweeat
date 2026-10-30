@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans_Thai } from "next/font/google";
+import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, SITE_URL, socialMeta } from "@/lib/site";
 import "./globals.css";
 
 const thai = IBM_Plex_Sans_Thai({
@@ -9,8 +10,8 @@ const thai = IBM_Plex_Sans_Thai({
 });
 
 export const metadata: Metadata = {
-  title: "WhatWillWeEat — กินอะไรดี?",
-  description: "สร้างกลุ่ม ชวนเพื่อน เสนอร้าน แล้วประมูลด้วยเหรียญ ใครอยากกินที่สุดได้เลือก",
+  metadataBase: new URL(SITE_URL),
+  ...socialMeta(DEFAULT_TITLE, DEFAULT_DESCRIPTION),
 };
 
 export const viewport: Viewport = {

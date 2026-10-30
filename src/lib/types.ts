@@ -44,6 +44,10 @@ export interface Meal {
   /** userId ของคนที่บิดแล้ว (ไม่บอกยอด) */
   bidders: string[];
   myBid: BidView | null;
+  /** เวลาล่าสุดที่มื้อมีความเคลื่อนไหว (ISO) */
+  lastActivityAt: string;
+  /** true = มื้อนิ่งเกิน 10 นาที คนที่ไม่ใช่เจ้าของก็ยกเลิกได้ */
+  staleCancelable: boolean;
   /** มีเฉพาะเมื่อ status = done */
   result: {
     winnerId: string;

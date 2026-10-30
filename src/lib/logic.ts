@@ -72,3 +72,18 @@ export function resolveAuction(restaurantIds: string[], bids: Bid[], rng: Rng = 
 
   return { winnerId, totals, payments, wasTie: tied.length > 1 };
 }
+
+// ------------------------------------------------------- มื้อค้าง (stale)
+
+/** ถ้าเจ้าของมื้อหายไป: มื้อไม่มีความเคลื่อนไหวเกินกี่นาที คนอื่นถึงยกเลิกได้ */
+export const MEAL_STALE_MINUTES = 10;
+
+/** เวลาล่าสุดที่มื้อมีความเคลื่อนไหว = ค่ามากสุดของ timestamp ที่ให้มา (ms) */
+export function lastActivityAt(timestamps: (string | null | undefined)[]): number {
+  return Math.max(0, ...timestamps.filter(Boolean).map((t) => Date.parse(t as string)));
+}
+
+/** มื้อนิ่งนานเกินกำหนดหรือยัง */
+export function isStale(lastActivityMs: number, nowMs: number, minutes = MEAL_STALE_MINUTES): boolean {
+  return nowMs - lastActivityMs >= minutes * 60_000;
+}

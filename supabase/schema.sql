@@ -108,6 +108,34 @@ drop policy if exists "signals are readable" on public.group_signals;
 create policy "signals are readable" on public.group_signals
   for select to anon, authenticated using (true);
 
+-- กันบิดหลังเปิดผล (รายละเอียดใน migrations/002_bid_guard.sql) ---------
+create or replace function public.ensure_meal_open_for_bid()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  meal_status text;
+begin
+  select status into meal_status
+  from public.meals
+  where id = new.meal_id
+  for share;
+
+  if meal_status is distinct from 'bidding' then
+    raise exception 'meal_not_bidding' using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists bids_require_bidding on public.bids;
+create trigger bids_require_bidding
+  before insert or update on public.bids
+  for each row execute function public.ensure_meal_open_for_bid();
+
 -- Realtime ------------------------------------------------------------
 do $$
 begin

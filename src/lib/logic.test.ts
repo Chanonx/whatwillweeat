@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { COINS, generateInviteCode, mealBonus, normalizeName, resolveAuction } from "./logic";
+import {
+  COINS,
+  MEAL_STALE_MINUTES,
+  generateInviteCode,
+  isStale,
+  lastActivityAt,
+  mealBonus,
+  normalizeName,
+  resolveAuction,
+} from "./logic";
 
 describe("mealBonus", () => {
   it("ได้ +20 ตามปกติ", () => expect(mealBonus(100)).toBe(20));
@@ -63,5 +72,19 @@ describe("resolveAuction", () => {
   it("บิด 0 ไม่ต้องจ่าย", () => {
     const r = resolveAuction(["a"], [{ userId: "u1", restaurantId: "a", amount: 0 }]);
     expect(r.payments).toEqual([]);
+  });
+});
+
+describe("stale meal", () => {
+  it("เวลาล่าสุด = ค่ามากที่สุด และข้ามค่าว่าง", () => {
+    expect(lastActivityAt(["2026-10-30T10:00:00Z", null, "2026-10-30T10:05:00Z"])).toBe(
+      Date.parse("2026-10-30T10:05:00Z"),
+    );
+  });
+
+  it("ครบ 10 นาทีพอดีถือว่าค้าง ก่อนหน้านั้นยังไม่ค้าง", () => {
+    const last = Date.parse("2026-10-30T10:00:00Z");
+    expect(isStale(last, last + 9 * 60_000 + 59_000)).toBe(false);
+    expect(isStale(last, last + MEAL_STALE_MINUTES * 60_000)).toBe(true);
   });
 });

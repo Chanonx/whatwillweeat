@@ -11,7 +11,7 @@ import { GroupSkeleton } from "@/components/Skeletons";
 import { Avatar, Button, Coins, Icon, SectionLabel, Toast } from "@/components/ui";
 import { useGroup } from "@/hooks/useGroup";
 import { api } from "@/lib/client";
-import { COINS } from "@/lib/logic";
+import { COINS, MEAL_STALE_MINUTES } from "@/lib/logic";
 import type { Action } from "@/lib/types";
 
 export default function GroupPageWrapper() {
@@ -177,8 +177,25 @@ function GroupPage() {
           />
         )}
 
+        {/* ช่วงสั้น ๆ ที่ server ปิดรับบิดแล้วแต่ยังคำนวณผลไม่เสร็จ */}
+        {meal?.status === "done" && !meal.result && (
+          <section className="border-y border-line py-16 text-center">
+            <p className="text-sm text-muted">กำลังสรุปผล...</p>
+          </section>
+        )}
+
         {isOwner && (meal?.status === "adding" || meal?.status === "bidding") && (
           <div className="mt-4 text-center">
+            <CancelMeal onCancel={() => safe({ type: "cancel_meal" })} />
+          </div>
+        )}
+
+        {/* เจ้าของมื้อหายไป: มื้อนิ่งเกิน 10 นาที → คนอื่นยกเลิกได้ (server ตรวจซ้ำ) */}
+        {!isOwner && meal?.staleCancelable && (
+          <div className="mt-4 flex flex-col items-center gap-1 text-center" data-testid="stale-cancel">
+            <p className="text-xs text-muted">
+              {ownerName} ไม่ได้ขยับมา {MEAL_STALE_MINUTES} นาทีแล้ว ยกเลิกมื้อนี้แล้วเริ่มใหม่ได้
+            </p>
             <CancelMeal onCancel={() => safe({ type: "cancel_meal" })} />
           </div>
         )}
